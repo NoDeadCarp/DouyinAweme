@@ -56,6 +56,8 @@ public class HookManager {
         }
     }
 
+    private static float lastDownY;
+
     public static void hookLongPress(ClassLoader cl) {
         try {
             Class<?> lpClass = cl.loadClass(LONG_PRESS_CLASS);
@@ -64,23 +66,35 @@ public class HookManager {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam p) {
                         View view = (View) p.thisObject;
-                        MotionEvent event = (MotionEvent) p.args[0];
-                        int action = event.getAction();
+                        MotionEvent e = (MotionEvent) p.args[0];
 
-                        if (action == MotionEvent.ACTION_DOWN) {
+                        if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                            lastDownY = e.getRawY();
                             Runnable task = longPressTasks.get(view);
                             if (task != null) view.removeCallbacks(task);
-                            task = () -> showMenu(view);
+                            final float downY = lastDownY;
+                            task = () -> {
+                                int m = view.getResources().getDisplayMetrics().heightPixels / 2;
+                                if (downY > m) showMenu(view);
+                            };
                             longPressTasks.put(view, task);
                             view.postDelayed(task, ViewConfiguration.getLongPressTimeout());
-                        } else if (action == MotionEvent.ACTION_UP
-                                || action == MotionEvent.ACTION_CANCEL) {
+                        } else if (e.getAction() == MotionEvent.ACTION_UP
+                                || e.getAction() == MotionEvent.ACTION_CANCEL) {
                             Runnable task = longPressTasks.remove(view);
                             if (task != null) view.removeCallbacks(task);
                         }
+
+                        // 下半屏：直接拦截，不传给原方法
+                        if (lastDownY > 0) {
+                            int mid = view.getResources().getDisplayMetrics().heightPixels / 2;
+                            if (lastDownY > mid) {
+                                p.setResult(true); // 告诉系统"我已处理"
+                            }
+                        }
                     }
                 });
-            XposedBridge.log("[DouyinAweme] Hooked: LongPressLayout.onTouchEvent");
+            XposedBridge.log("[DouyinAweme] Hooked: LongPressLayout.onTouchEvent (half-screen)");
         } catch (ClassNotFoundException e) {
             XposedBridge.log("[DouyinAweme] LongPressLayout not found: " + e.getMessage());
         }
