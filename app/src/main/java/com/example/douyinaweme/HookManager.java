@@ -102,6 +102,7 @@ public class HookManager {
 
             PopupWindow[] menuRef = new PopupWindow[1];
             PopupWindow menu = buildPopup(activity, menuContent(activity,
+                    () -> { menuRef[0].dismiss(); showMediaInfo(activity); },
                     () -> { menuRef[0].dismiss(); showDeveloperPanel(activity); },
                     () -> menuRef[0].dismiss()));
             menuRef[0] = menu;
@@ -110,6 +111,94 @@ public class HookManager {
         } catch (Exception e) {
             XposedBridge.log("[DouyinAweme] Failed to show menu: " + e.getMessage());
         }
+    }
+
+    /** 读取 Aweme 字段值（反射） */
+    private static String fieldVal(String name) {
+        if (currentAweme == null) return "N/A";
+        try {
+            Class<?> c = currentAweme.getClass();
+            while (c != null && c != Object.class) {
+                for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                    if (f.getName().equals(name)) {
+                        f.setAccessible(true);
+                        Object v = f.get(currentAweme);
+                        return v == null ? "null" : v.toString();
+                    }
+                }
+                c = c.getSuperclass();
+            }
+        } catch (Exception ignored) {}
+        return "?";
+    }
+
+    /** 媒体信息弹窗 */
+    private static void showMediaInfo(Activity a) {
+        boolean d = dark(a);
+        int tc = d ? 0xFFEEEEEE : 0xFF111111;
+        int sub = d ? 0xFFAAAAAA : 0xFF666666;
+
+        LinearLayout content = new LinearLayout(a);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(32, 28, 32, 28);
+
+        TextView title = new TextView(a);
+        title.setText("Media Info");
+        title.setTextColor(tc);
+        title.setTextSize(17);
+        title.setGravity(Gravity.CENTER);
+        title.setPadding(0, 0, 0, 24);
+        content.addView(title);
+
+        String mtRaw = fieldVal("mediaType");
+        String mt = mtRaw;
+        if ("4".equals(mtRaw)) mt += " (Video)";
+        else if ("2".equals(mtRaw)) mt += " (Image/Text)";
+
+        // 格式化 duration（毫秒 → 时:分:秒）
+        String durRaw = fieldVal("duration");
+        String durLabel = durRaw + " ms";
+        try {
+            long ms = Long.parseLong(durRaw);
+            long s = ms / 1000;
+            if (s >= 3600) durLabel += " (" + (s / 3600) + "h " + ((s % 3600) / 60) + "m " + (s % 60) + "s)";
+            else if (s >= 60) durLabel += " (" + (s / 60) + "m " + (s % 60) + "s)";
+            else durLabel += " (" + s + "s)";
+        } catch (Exception ignored) {}
+
+        // 格式化 createTime（Unix 秒 → 日期时间）
+        String ctimeRaw = fieldVal("createTime");
+        String ctimeLabel = ctimeRaw;
+        try {
+            long sec = Long.parseLong(ctimeRaw);
+            ctimeLabel += " (" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date(sec * 1000)) + ")";
+        } catch (Exception ignored) {}
+
+        String[][] rows = {
+            {"Duration", durLabel},
+            {"Create Time", ctimeLabel},
+            {"Region", fieldVal("region")},
+            {"City", RegionHelper.resolve(fieldVal("city"))},
+            {"Media Type", mt},
+        };
+
+        for (String[] row : rows) {
+            TextView label = new TextView(a);
+            label.setText(row[0]);
+            label.setTextColor(sub);
+            label.setTextSize(12);
+            label.setPadding(0, 10, 0, 2);
+            content.addView(label);
+
+            TextView val = new TextView(a);
+            val.setText(row[1]);
+            val.setTextColor(tc);
+            val.setTextSize(15);
+            content.addView(val);
+        }
+
+        PopupWindow panel = buildPopup(a, content);
+        showWithOverlay(panel, a);
     }
 
     /** 开发者面板 */
@@ -187,7 +276,7 @@ public class HookManager {
         pw.showAtLocation(root, Gravity.CENTER, 0, 0);
     }
 
-    private static LinearLayout menuContent(Activity a, Runnable onDev, Runnable onCancel) {
+    private static LinearLayout menuContent(Activity a, Runnable onMedia, Runnable onDev, Runnable onCancel) {
         boolean d = dark(a);
         int tc = d ? 0xFFEEEEEE : 0xFF111111;
         int sub = d ? 0xFF888888 : 0xFF999999;
@@ -210,6 +299,8 @@ public class HookManager {
         menuArea.setOrientation(LinearLayout.VERTICAL);
         menuArea.setPadding(24, 12, 24, 12);
 
+        menuArea.addView(menuBtn(a, "Media Info", onMedia));
+        menuArea.addView(menuBtn(a, "Download Resources (WIP)", () -> {}));
         menuArea.addView(menuBtn(a, "Developer Options", onDev));
         menuArea.addView(menuBtn(a, "Cancel", onCancel));
 
