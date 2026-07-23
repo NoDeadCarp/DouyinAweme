@@ -57,9 +57,14 @@ public class HookManager {
 
     private static float lastDownY;
 
+    // 每个 LongPressLayout 的按下 Y 坐标
+    private static final WeakHashMap<View, Float> downYMap = new WeakHashMap<>();
+
     public static void hookLongPress(ClassLoader cl) {
         try {
             Class<?> lpClass = cl.loadClass(LONG_PRESS_CLASS);
+
+            // Hook 1: onTouchEvent 记录位置 + 启动我们的长按计时
             XposedHelpers.findAndHookMethod(lpClass, "onTouchEvent", MotionEvent.class,
                 new XC_MethodHook() {
                     @Override
@@ -68,13 +73,13 @@ public class HookManager {
                         MotionEvent e = (MotionEvent) p.args[0];
 
                         if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                            lastDownY = e.getRawY();
+                            downYMap.put(view, e.getRawY());
                             Runnable task = longPressTasks.get(view);
                             if (task != null) view.removeCallbacks(task);
-                            final float downY = lastDownY;
                             task = () -> {
+                                Float dy = downYMap.get(view);
                                 int m = view.getResources().getDisplayMetrics().heightPixels / 2;
-                                if (downY > m) showMenu(view);
+                                if (dy != null && dy > m) showMenu(view);
                             };
                             longPressTasks.put(view, task);
                             view.postDelayed(task, ViewConfiguration.getLongPressTimeout());
@@ -83,17 +88,38 @@ public class HookManager {
                             Runnable task = longPressTasks.remove(view);
                             if (task != null) view.removeCallbacks(task);
                         }
-
-                        // 下半屏：直接拦截，不传给原方法
-                        if (lastDownY > 0) {
-                            int mid = view.getResources().getDisplayMetrics().heightPixels / 2;
-                            if (lastDownY > mid) {
-                                p.setResult(true); // 告诉系统"我已处理"
-                            }
-                        }
                     }
                 });
-            XposedBridge.log("[DouyinAweme] Hooked: LongPressLayout.onTouchEvent (half-screen)");
+
+            // Hook 2: 长按处理方法（lambda），下半屏阻止原生触发
+            try {
+                java.lang.reflect.Method[] methods = lpClass.getDeclaredMethods();
+                for (java.lang.reflect.Method m : methods) {
+                    if (m.getName().startsWith("lambda$") && m.getParameterTypes().length == 2) {
+                        XposedBridge.hookMethod(m, new XC_MethodHook() {
+                            @Override
+                            protected void beforeHookedMethod(MethodHookParam p) {
+                                View view = (View) p.thisObject;
+                                Float dy = downYMap.get(view);
+                                if (dy != null) {
+                                    int mid = view.getResources()
+                                            .getDisplayMetrics().heightPixels / 2;
+                                    if (dy > mid) {
+                                        p.setResult(null);
+                                        XposedBridge.log("[DouyinAweme] Native BLOCKED");
+                                    }
+                                }
+                            }
+                        });
+                        XposedBridge.log("[DouyinAweme] Hooked lambda: " + m.getName());
+                        break;
+                    }
+                }
+            } catch (Throwable t) {
+                XposedBridge.log("[DouyinAweme] Lambda hook failed: " + t.getMessage());
+            }
+
+            XposedBridge.log("[DouyinAweme] Hooked: LongPressLayout");
         } catch (ClassNotFoundException e) {
             XposedBridge.log("[DouyinAweme] LongPressLayout not found: " + e.getMessage());
         }
