@@ -24,7 +24,6 @@ import de.robv.android.xposed.XposedHelpers;
 
 public class HookManager {
 
-    private static final String AWEME_CLASS = "com.ss.android.ugc.aweme.feed.model.Aweme";
     private static final String VIDEO_HOLDER_CLASS = "com.ss.android.ugc.aweme.feed.adapter.VideoViewHolder";
     private static final String LONG_PRESS_CLASS = "com.ss.android.ugc.aweme.feed.ui.LongPressLayout";
 
@@ -191,8 +190,8 @@ public class HookManager {
         String[][] rows = {
             {"Duration", durLabel},
             {"Create Time", ctimeLabel},
-            {"Region", fieldVal("region")},
-            {"City", RegionHelper.resolve(fieldVal("city"))},
+            {"Region", RegionHelper.resolveRegion(fieldVal("region"))},
+            {"City", RegionHelper.resolveCity(fieldVal("city"))},
             {"Media Type", mt},
         };
 
